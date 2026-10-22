@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-php2shell_check.py — all-in-one vulnerability checker for CVE-2026-109618 / 109619
+php2shell_check.py: all-in-one vulnerability checker for CVE-2026-109618 / 109619
 (php2shell: heap use-after-free in PHP session.upload_progress handler).
 
 Combines four non-destructive tests against a remote PHP target:
@@ -205,12 +205,12 @@ def trigger_once(cfg, stall, spray, n_stalls, verbose):
         sock = open_conn(cfg.host, cfg.port, cfg.tls, cfg.verify)
         send_all(sock, post_request_head(cfg, sid, total) + phases[0])
         if verbose:
-            print(f"    [>] phase 1 sent ({len(phases[0])}B) — pointers armed")
+            print(f"    [>] phase 1 sent ({len(phases[0])}B): pointers armed")
         for i, phase in enumerate(phases[1:]):
             time.sleep(stall)  # > min_freq: track_init() frees arData
             send_all(sock, phase)
             if verbose:
-                print(f"    [>] phase {i+2} sent after {stall}s stall — stale write")
+                print(f"    [>] phase {i+2} sent after {stall}s stall: stale write")
         raw, recv_err = recv_all(sock)
         sock.close()
     except (ConnectionResetError, BrokenPipeError, ssl.SSLError) as e:
@@ -377,7 +377,7 @@ def mode_stream(cfg, args):
         print("     between FILE_DATA events: UAF NOT reachable over HTTP")
         verdict = "buffering"
     else:
-        print(f"  => INCONCLUSIVE (latency {lat1:.1f}s) — raise --stream-stall/--conns")
+        print(f"  => INCONCLUSIVE (latency {lat1:.1f}s); raise --stream-stall/--conns")
         verdict = "inconclusive"
     return {"front_end": verdict, "lat_baseline": lat0, "lat_during": lat1}
 
@@ -428,7 +428,7 @@ def main():
     )
 
     print("=" * 64)
-    print(" php2shell_check — CVE-2026-109618 / CVE-2026-109619 checker")
+    print(" php2shell_check: CVE-2026-109618 / CVE-2026-109619 checker")
     print("=" * 64)
     print(f"[*] Target: {args.url}")
     print(f"[*] Mode:   {args.mode}")
@@ -441,7 +441,7 @@ def main():
         if m == "probe":
             results["probe"] = mode_probe(cfg)
             if not results["probe"].get("reachable"):
-                print("\n[!] Target unreachable — aborting remaining tests")
+                print("\n[!] Target unreachable; aborting remaining tests")
                 break
         elif m == "trigger":
             results["trigger"] = mode_trigger(cfg, args)
@@ -471,18 +471,18 @@ def main():
 
     print()
     if crashed:
-        print("VERDICT: VULNERABLE — memory corruption observed (worker crash).")
+        print("VERDICT: VULNERABLE, memory corruption observed (worker crash).")
     elif streaming and locked:
-        print("VERDICT: LIKELY VULNERABLE — stall reaches PHP and upload_progress")
+        print("VERDICT: LIKELY VULNERABLE, stall reaches PHP and upload_progress")
         print("         initializes the session mid-parse; no crash observed yet")
         print("         (silent write). A tuned heap groom could turn this into RCE.")
     elif results.get("stream", {}).get("front_end") == "buffering":
-        print("VERDICT: NOT EXPLOITABLE via this vector — the front-end buffers")
+        print("VERDICT: NOT EXPLOITABLE via this vector, the front-end buffers")
         print("         the request body, so the timed stall never reaches PHP.")
         print("         (Defense in depth only: the PHP binary may still carry the")
-        print("         bug — patch to >= 8.4.27 or set session.upload_progress.enabled=Off.)")
+        print("         bug; patch to >= 8.4.27 or set session.upload_progress.enabled=Off.)")
     else:
-        print("VERDICT: INCONCLUSIVE — see per-mode output above.")
+        print("VERDICT: INCONCLUSIVE, see per-mode output above.")
     print("=" * 64)
 
 

@@ -2,8 +2,8 @@
 
 A non-destructive exploitability checker for **PHP2Shell**, the heap use-after-free in PHP's `session.upload_progress` handler:
 
-- **CVE-2026-109618** — `post_bytes_processed` stale pointer write
-- **CVE-2026-109619** — `current_file_bytes_processed` stale pointer write
+- **CVE-2026-109618**: `post_bytes_processed` stale pointer write
+- **CVE-2026-109619**: `current_file_bytes_processed` stale pointer write
 
 The PHP project fixed both on 21 Oct 2026 in **8.2.35, 8.3.36, 8.4.27 and 8.5.12**. PHP 8.1 and older get no upstream fix.
 
@@ -61,16 +61,16 @@ The script prints a final verdict by cross-referencing the oracles:
 
 | Signal | Verdict |
 |---|---|
-| Crash observed in `trigger` | **VULNERABLE** — memory corruption reached (worker crash). |
-| `stream` = streaming **and** `lock` positive | **LIKELY VULNERABLE** — the stall reaches PHP and `upload_progress` initializes the session mid-parse; no crash yet (silent write). A tuned heap groom could turn this into RCE. |
-| `stream` = buffering | **NOT EXPLOITABLE via this vector** — the front-end buffers the body, so the timed stall never reaches PHP. The PHP binary may still carry the bug: patch anyway. |
-| otherwise | **INCONCLUSIVE** — see per-mode output; raise `--stream-stall` / `--conns`. |
+| Crash observed in `trigger` | **VULNERABLE**: memory corruption reached (worker crash). |
+| `stream` = streaming **and** `lock` positive | **LIKELY VULNERABLE**: the stall reaches PHP and `upload_progress` initializes the session mid-parse; no crash yet (silent write). A tuned heap groom could turn this into RCE. |
+| `stream` = buffering | **NOT EXPLOITABLE via this vector**: the front-end buffers the body, so the timed stall never reaches PHP. The PHP binary may still carry the bug: patch anyway. |
+| otherwise | **INCONCLUSIVE**: see per-mode output; raise `--stream-stall` / `--conns`. |
 
 A buffering front end is defense in depth, not a fix: the PHP build may still be vulnerable through another entry point.
 
 ## The vulnerability
 
-PHP's `ext/session/session.c` rfc1867 upload-progress handler caches raw `zval*` pointers into the session HashTable (`arData`). When a multipart upload stalls longer than `session.upload_progress.min_freq` (default 1 s), a second `FILE_DATA` event re-runs `php_session_rfc1867_update()` → `php_session_initialize()` → `php_session_track_init()`, which frees the HashTable. The cached pointers now reference freed `arData` slots, and the next `ZVAL_LONG` write (storing `bytes_processed`) writes through those stale pointers — a heap use-after-free.
+PHP's `ext/session/session.c` rfc1867 upload-progress handler caches raw `zval*` pointers into the session HashTable (`arData`). When a multipart upload stalls longer than `session.upload_progress.min_freq` (default 1 s), a second `FILE_DATA` event re-runs `php_session_rfc1867_update()` → `php_session_initialize()` → `php_session_track_init()`, which frees the HashTable. The cached pointers now reference freed `arData` slots, and the next `ZVAL_LONG` write (storing `bytes_processed`) writes through those stale pointers, a heap use-after-free.
 
 ### Affected versions
 
@@ -80,7 +80,7 @@ PHP's `ext/session/session.c` rfc1867 upload-progress handler caches raw `zval*`
 | PHP 8.3 | 8.3.35 | **8.3.36** |
 | PHP 8.4 | 8.4.26 | **8.4.27** |
 | PHP 8.5 | 8.5.11 | **8.5.12** |
-| PHP ≤ 8.1 | all | no backport — EOL |
+| PHP ≤ 8.1 | all | no backport (EOL) |
 
 Distribution packages may be fixed while still showing an older upstream version. Check the package changelog for the CVE IDs before treating a header version as conclusive.
 
@@ -95,11 +95,11 @@ Distribution packages may be fixed while still showing an older upstream version
 | 8.4 | 8.4.27 |
 | 8.5 | 8.5.12 |
 
-PHP 8.1 and older get no php.net release. The PHP security team published source patches for 7.4, 8.0 and 8.1, and several distributions backported the fix while keeping their package version (e.g. a package still labelled `8.1.34`). The official `php` Docker image gets no fix for 8.1 or older — rebuild on a supported branch.
+PHP 8.1 and older get no php.net release. The PHP security team published source patches for 7.4, 8.0 and 8.1, and several distributions backported the fix while keeping their package version (e.g. a package still labelled `8.1.34`). The official `php` Docker image gets no fix for 8.1 or older; rebuild on a supported branch.
 
 ### If you cannot patch immediately
 
-The settings below are **partial stopgaps only** — none closes the vulnerability on its own, and a PHP core maintainer warned that disabling upload progress alone is not enough. Apply them administratively, restart every worker, and still patch as soon as you can.
+The settings below are **partial stopgaps only**: none closes the vulnerability on its own, and a PHP core maintainer warned that disabling upload progress alone is not enough. Apply them administratively, restart every worker, and still patch as soon as you can.
 
 ```ini
 ; php.ini  (or php_admin_flag / php_admin_value in the FPM pool)
@@ -111,7 +111,7 @@ session.upload_progress.enabled = 0
 ; Removes another CVE-2026-109619 trigger (PHP 8.5).
 fatal_error_backtraces = 0
 
-; Primary config mitigation for CVE-2026-109618 — but the advisory calls it
+; Primary config mitigation for CVE-2026-109618, but the advisory calls it
 ; "not a complete mitigation", and with no cap a single request can exhaust
 ; all server memory. Monitor usage and restore the limit once patched.
 memory_limit = -1
@@ -121,7 +121,7 @@ post_max_size = 8M
 max_input_nesting_level = 32
 ```
 
-Every known trigger is a `multipart/form-data` request, so blocking those at the web server is a further stopgap — but it does not address the out-of-memory corruption path (CVE-2026-109618).
+Every known trigger is a `multipart/form-data` request, so blocking those at the web server is a further stopgap, but it does not address the out-of-memory corruption path (CVE-2026-109618).
 
 > **Note on scope:** this checker probes the `session.upload_progress` use-after-free, which the PHP advisory lists as one confirmed path of **CVE-2026-109619**. A "not exploitable via this vector" verdict does **not** clear the host of CVE-2026-109618 (OOM corruption) or of other variants PHP warns about. Patch regardless of the verdict.
 
