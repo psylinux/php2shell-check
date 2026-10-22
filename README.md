@@ -84,6 +84,45 @@ PHP's `ext/session/session.c` rfc1867 upload-progress handler caches raw `zval*`
 
 Distribution packages may be fixed while still showing an older upstream version. Check the package changelog for the CVE IDs before treating a header version as conclusive.
 
+## Conditions for exploitation
+
+A positive verdict from this tool means the `session.upload_progress` use-after-free path is reachable. That is one precondition, not a full exploit. "php2shell" is really a family of at least five independent RCE chains that share the `rfc1867` upload-progress entry point but need different additional conditions, so a host can be exploitable through one chain and immune to another. The table summarizes what each chain requires to reach code execution.
+
+| Chain | Mechanism | Pre-auth | SAPI | Needs from the app / host |
+|---|---|:--:|---|---|
+| A | Upload-progress stores the raw multipart filename in the session file; an LFI then includes it | Yes | any | an LFI sink, plus a known or guessable session save path |
+| B | `var_destroy` UAF, then handler overwrite via `/proc/self/mem` | No | any | the app calls `unserialize()` on attacker input |
+| C | FPM `PS(serializer)` leaks across requests; the filename injects a serialized object; `__destruct` fires | Yes | FPM | an endpoint that sets `serialize_handler = php_serialize`, and an autoloaded `__destruct` gadget |
+| D | Oversized multipart OOMs mid-request; `longjmp` skips cleanup; request shutdown branches on stale `EG()` | Yes | mod_php | nothing from the app (only a hittable `memory_limit`) |
+| E | A session-decode OOM leaves `BG(unserialize)` dirty; a later request's upload-progress handler consumes it | Yes | FPM | a `session_start()` endpoint as producer; the consumer can be any endpoint |
+
+### What it takes to actually get a shell
+
+**Injection chains (A, C): no memory-corruption skill required.** These are the routes most likely to yield a shell on a real target. They turn the upload-progress filename-storage behaviour plus one application-level primitive (a local file include for A, or a `__destruct` gadget on FPM for C) directly into RCE, with no ASLR leak and no binary offsets, and they are deterministic. Chain A also survives a fully patched PHP, because the fix does not sanitize filenames stored by `session.upload_progress`; only fixing the application's LFI closes it.
+
+**Memory-corruption chains (D, E): zero application dependency, but fragile.** Chain D is pre-auth RCE against any unpatched Apache mod_php with no application bug at all, and Chain E is the FPM equivalent. Turning these from a crash into a shell needs every one of:
+
+- Unpatched PHP (below 8.2.35 / 8.3.36 / 8.4.27 / 8.5.12, or an EOL branch)
+- A hittable `memory_limit`, so the parser OOMs mid-operation (no `Content-Length` to bypass `post_max_size`, plus header or nested-array amplification)
+- Matching per-build offsets (`zif_system`, `zval_ptr_dtor`) for the exact version, OS and architecture; without them you only crash
+- A working ASLR leak (the out-of-bounds read that surfaces heap pointers in the `Set-Cookie` header)
+- A stable single worker (mod_php for D; FPM with worker reuse such as `pm.max_children = 1`, or connection pinning, for E) and a way to recover it between attempts
+
+### Conditions that block every chain
+
+- **The front end buffers the request body** instead of streaming it to PHP (for example nginx with the default `proxy_request_buffering on` / `fastcgi_request_buffering on`). The timed stall and the OOM never reach PHP. This is the single biggest real-world filter, and it is exactly what the `stream` oracle in this tool measures.
+- **Patched PHP** closes every chain except A.
+- **`memory_limit = -1`** is counterintuitively protective: it removes the predictable allocation failure the OOM chains rely on. Do not substitute `RLIMIT_AS` / `RLIMIT_DATA`, which fail through the same vulnerable path.
+- **No LFI, no `unserialize` sink, no `__destruct` gadget, and no matching offsets**: you are left with crashes and info leaks, not a shell.
+
+### Cross-cutting facts
+
+- `session.upload_progress.enabled = Off` is **not** a fix for CVE-2026-109618 (the OOM corruption path); it only closes CVE-2026-109619 session paths. CVE-2026-109619 itself has three arms: `session.upload_progress`, `fatal_error_backtraces` (PHP 8.5 only), and OPcache shared memory (patch only).
+- PHP 8.4's `request_parse_body()` parses `multipart/form-data` on GET, PUT, PATCH and DELETE, so POST-only WAF rules can be bypassed.
+- This checker verifies reachability of the upload-progress vector only. A "not exploitable via this vector" verdict does not clear a host of Chain D (OOM corruption) or the other variants, so patch regardless of the verdict.
+
+Sources: the PHP advisories ([GHSA-w8hw-w9fx-j79w](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w), [GHSA-6wmf-4rv5-p3rp](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp)), [Sansec](https://sansec.io/research/php2shell), and [Wiz](https://www.wiz.io/blog/php2shell-php-rce).
+
 ## Mitigation
 
 **Updating PHP is the only complete fix.** The official advisories are explicit: patching is "the only complete mitigation" for CVE-2026-109618 and "the only reliable mitigation" for CVE-2026-109619. Update to the fixed release for your branch:
