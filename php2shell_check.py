@@ -21,8 +21,8 @@ Combines four non-destructive tests against a remote PHP target:
           Slow GET (~stall) => front-end streams => UAF path reachable.
 
 Modes can be run individually or all together (--mode all, the default).
-The tool does NOT solve challenges, drop webshells, or run commands on the
-target: it only checks whether the preconditions for the UAF are present.
+The tool does NOT drop webshells or run commands on the target: it only
+checks whether the preconditions for the UAF are present.
 
 Usage:
   python3 php2shell_check.py --url https://www.example.com/index.php

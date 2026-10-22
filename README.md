@@ -7,7 +7,7 @@ A non-destructive exploitability checker for **PHP2Shell**, the heap use-after-f
 
 The PHP project fixed both on 21 Oct 2026 in **8.2.35, 8.3.36, 8.4.27 and 8.5.12**. PHP 8.1 and older get no upstream fix.
 
-`php2shell_check.py` does **not** drop a webshell, run commands, or solve a challenge. It only tests whether the preconditions for the use-after-free are present, using three independent oracles plus a benign fingerprint. Single file, Python 3.8+, standard library only.
+`php2shell_check.py` does **not** drop a webshell or run commands on the target. It only tests whether the preconditions for the use-after-free are present, using three independent oracles plus a benign fingerprint. Single file, Python 3.8+, standard library only.
 
 > **Related:** for a passive, single-request version check (no payload, safe to run against production at a low rate), see [psylinux/php2shell-nuclei-template](https://github.com/psylinux/php2shell-nuclei-template/).
 
