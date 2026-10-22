@@ -86,14 +86,44 @@ Distribution packages may be fixed while still showing an older upstream version
 
 ## Mitigation
 
-Immediate, no patch required:
+**Updating PHP is the only complete fix.** The official advisories are explicit: patching is "the only complete mitigation" for CVE-2026-109618 and "the only reliable mitigation" for CVE-2026-109619. Update to the fixed release for your branch:
+
+| Branch | Fixed in |
+|---|---|
+| 8.2 | 8.2.35 |
+| 8.3 | 8.3.36 |
+| 8.4 | 8.4.27 |
+| 8.5 | 8.5.12 |
+
+PHP 8.1 and older get no php.net release. The PHP security team published source patches for 7.4, 8.0 and 8.1, and several distributions backported the fix while keeping their package version (e.g. a package still labelled `8.1.34`). The official `php` Docker image gets no fix for 8.1 or older — rebuild on a supported branch.
+
+### If you cannot patch immediately
+
+The settings below are **partial stopgaps only** — none closes the vulnerability on its own, and a PHP core maintainer warned that disabling upload progress alone is not enough. Apply them administratively, restart every worker, and still patch as soon as you can.
 
 ```ini
-; php.ini
-session.upload_progress.enabled = Off
+; php.ini  (or php_admin_flag / php_admin_value in the FPM pool)
+
+; Closes the confirmed upload-progress trigger (a CVE-2026-109619 path).
+; This is what php2shell_check.py probes for.
+session.upload_progress.enabled = 0
+
+; Removes another CVE-2026-109619 trigger (PHP 8.5).
+fatal_error_backtraces = 0
+
+; Primary config mitigation for CVE-2026-109618 — but the advisory calls it
+; "not a complete mitigation", and with no cap a single request can exhaust
+; all server memory. Monitor usage and restore the limit once patched.
+memory_limit = -1
+
+; Keep the request-body surface small.
+post_max_size = 8M
+max_input_nesting_level = 32
 ```
 
-Or update PHP to the fixed release for your branch (8.2.35+, 8.3.36+, 8.4.27+, 8.5.12+). The vendor fix removes the long-lived `zval*` cache and re-derives the target pointer on each write instead of caching it across the stall window.
+Every known trigger is a `multipart/form-data` request, so blocking those at the web server is a further stopgap — but it does not address the out-of-memory corruption path (CVE-2026-109618).
+
+> **Note on scope:** this checker probes the `session.upload_progress` use-after-free, which the PHP advisory lists as one confirmed path of **CVE-2026-109619**. A "not exploitable via this vector" verdict does **not** clear the host of CVE-2026-109618 (OOM corruption) or of other variants PHP warns about. Patch regardless of the verdict.
 
 ## References
 
